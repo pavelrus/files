@@ -1,0 +1,85 @@
+function Test-Credential {
+    param (
+        [Parameter()]
+        [System.Management.Automation.PSCredential]
+        $credential
+    )
+
+    if (!$credential) {
+        return;
+    }
+
+    $currentDomain = "LDAP://" + ([ADSI]"").distinguishedName;
+    $domain = New-Object System.DirectoryServices.DirectoryEntry($currentDomain, $credential.UserName, $credential.GetNetworkCredential().Password);
+
+    if ($domain.Name) {
+        return $true;
+    }
+}
+
+function Get-SavedToken {
+    param (
+        [Parameter(Mandatory)]
+        [String]
+        $credentialFilePath
+    )
+    
+    if (!(Test-Path -Path $credentialFilePath)) {
+        return;
+    }
+
+    try {
+        $credential = Import-Clixml -Path $credentialFilePath;
+    }
+    catch {
+        Write-Host ("File {0} is corrupted" -f $credentialFilePath);
+    }
+
+    if (Test-Credential -credential $credential) {
+        return $credential;
+    }
+}
+
+function Get-Token {
+    param (
+        [Parameter(Mandatory)]
+        [String]
+        $rootFolder
+    )
+
+    $credentialFilePath = "{0}\{1}" -f $rootFolder, 'credential.xml';
+
+    $credential = Get-SavedToken `
+        -credentialFilePath $credentialFilePath;
+    
+    if (!$credential) {
+        try {
+            $credential = Get-Credential;
+        }
+        catch {
+            Write-Host "UserName and/or Password are not specified";
+        }
+    }
+
+    if ($credential) {
+        if (Test-Credential -credential $credential) {
+            #$crdFolder = "{0}\crd" -f $rootFolder;
+            #if (!(Test-Path -Path $crdFolder)) {
+            #    New-Item -Path $crdFolder -ItemType Directory;
+            #}
+
+            $credential | Export-Clixml -Path $credentialFilePath;
+
+            #$credential = Get-SavedToken `
+            #    -credentialFilePath $credentialFilePath;
+
+            return [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(("{0}:{1}" -f `
+                    $credential.UserName, `
+                    $credential.GetNetworkCredential().Password `
+                )));
+        }
+        else {
+            Write-Host "Credential is not valid";
+        }
+    }
+}
